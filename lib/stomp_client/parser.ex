@@ -160,6 +160,8 @@ defmodule StompClient.Parser do
     {header_value, remaining_message_after_value_extraction} =
       get_header_value("", remaining_message_after_header_extraction)
 
+    header_name = apply_value_decoding(header_name)
+
     {{header_name, header_value}, remaining_message_after_value_extraction}
   end
 
@@ -181,5 +183,55 @@ defmodule StompClient.Parser do
       _ ->
         get_header_value(header_value <> <<x>>, r)
     end
+  end
+
+  @cr <<13>>
+  @lf <<10>>
+
+  @doc """
+  Apply "Value Decoding" for header values.
+
+  See https://stomp.github.io/stomp-specification-1.2.html#Valuea_Encoding
+
+  ## Examples
+    iex> StompClient.Parser.apply_value_decoding(<<"foo", 92, 92, "bar">>)
+    <<"foo", 92, "bar">>
+    iex> StompClient.Parser.apply_value_decoding(<<"foo", 92, 99, "bar">>)
+    "foo:bar"
+    iex> StompClient.Parser.apply_value_decoding(<<"foo", 92, 110, "bar">>)
+    <<"foo", 10, "bar">>
+    iex> StompClient.Parser.apply_value_decoding(<<"foo", 92, 114, "bar">>)
+    <<"foo", 13, "bar">>
+  """
+  def apply_value_decoding(value) when is_binary(value) do
+    apply_value_decoding(String.to_charlist(value), [])
+  end
+
+  def apply_value_decoding(value) when is_list(value) do
+    apply_value_decoding(value, [])
+  end
+
+  defp apply_value_decoding([92 | [92 | tail]], result) do
+    apply_value_decoding(tail, [92 | result])
+  end
+
+  defp apply_value_decoding([92 | [99 | tail]], result) do
+    apply_value_decoding(tail, [?: | result])
+  end
+
+  defp apply_value_decoding([92 | [110 | tail]], result) do
+    apply_value_decoding(tail, [@lf | result])
+  end
+
+  defp apply_value_decoding([92 | [114 | tail]], result) do
+    apply_value_decoding(tail, [@cr | result])
+  end
+
+  defp apply_value_decoding([other | tail], result) do
+    apply_value_decoding(tail, [other | result])
+  end
+
+  defp apply_value_decoding([], result) do
+    Enum.reverse(result) |> to_string
   end
 end
